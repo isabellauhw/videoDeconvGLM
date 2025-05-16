@@ -30,7 +30,7 @@ classdef linearEncodeModel
         % Common time axis
         sRate = 20;  % 20Hz for all data
         preTime = 0.5; % time before the onset of an event that is included in the time kernel
-        postTime = 2; % time after the onset of an event that is included in the time kernel
+        postTime = 3; % (I put it as 3 for now) time after the onset of an event that is included in the time kernel
         globalTime % global time axis in seconds (array of time indices)
         globalStartTime % global time axis start time
         globalEndTime % global time axis end time
@@ -232,7 +232,7 @@ classdef linearEncodeModel
         
                 % Choice window
                 choiceIdx = obj.globalTime >= obj.choiceStartTimes(t) - obj.preTime & ...
-                            obj.globalTime < obj.choiceStartTimes(t) + obj.postTime;
+                            obj.globalTime < obj.choiceStartTimes(t) + obj.postTime; % Only within the choice time frame
                 choice = obj.bhv.choice(t);
                 if strcmp(choice, 'Left')
                     obj.choiceL(choiceIdx) = 1;
@@ -265,7 +265,7 @@ classdef linearEncodeModel
                     % Reward window
                     if strcmp(obj.bhv.feedback(t), "Rewarded") % If there was a reward, assign the corresponding regresso as 1
                         rewardIdx = obj.globalTime >= obj.rewardOnsetTimes(t) - obj.preTime & ...
-                                    obj.globalTime < obj.rewardOnsetTimes(t) + obj.postTime;
+                                    obj.globalTime < obj.rewardOnsetTimes(t) + obj.postTime; % Only within the reward time frame
                         rewardField = ['reward' stimSide contrastKey];
                         if isprop(obj, rewardField)
                             obj.(rewardField)(rewardIdx) = 1;
@@ -336,80 +336,9 @@ classdef linearEncodeModel
                 'VariableNames', ['stim', stimVars, 'choiceL', 'choiceR', rewardVars, motionPCNames]);
         end
 
-        function [stimMat, stimIdx] = createStimulusDesignMatrix(obj, fullR, stimLabels)
-            % *createStimulusDesignMatrix*: an embedded function that creates *time-shifted* design matrix 
-            % for stimulus regressors
-        
-            % INPUT:
-            % - *obj*: the *object instance* of the class linearEncodeModel (optional)
-            % - *fullR*: a *table* containing the non-time-shifted behavioral and video PCs regressors.
-            % - *stimLabels*: a *cell* array containing *strings* of the stimulus labels to include in the design matrix (e.g., {'stim', 'choiceR', 'choiceL'})
-        
-            % OUTPUT:
-            % - *stimMat*: a time-shifted stimulus design matrix with size [frames x (number of stimulus regressors x lags)]
-            % - *stimIdx*: index tracker for the stimulus regressors, corresponding to time-shifted columns in stimMat
-        
-            % Helper function for design matrix creation
-            function [matOut, idxOut] = buildTimeShiftedMatrix(labelList)
-                nLabels = numel(labelList);
-                matOut = {};
-                idxOut = {};
-                rawMat = zeros(sum(selectedRows), nLabels);
-                
-                % Extract label-specific time series
-                for i = 1:nLabels
-                    if ismember(labelList{i}, fullR.Properties.VariableNames)
-                        rawMat(:, i) = fullR.(labelList{i})(selectedRows);
-                    else
-                        error('Label "%s" not found in fullR.', labelList{i});
-                    end
-                end
-                
-                if mod(size(rawMat, 1), nTrials * framesPerTrial) ~= 0
-                    error('Mismatch between frame count and trial count.');
-                end
-                
-                rawMat = reshape(rawMat, framesPerTrial, nTrials, nLabels);
-                
-                % Time-shift the matrix for each label
-                for iRegs = 1:nLabels
-                    trace = reshape(rawMat(:, :, iRegs), [], 1);
-                    nFrames = size(trace, 1);
-                    regMat = zeros(nFrames, framesPerTrial);
-                    
-                    % Shift the traces by the lag values
-                    for lag = 1:framesPerTrial
-                        shift = lag - 1;
-                        if shift == 0
-                            regMat(:, lag) = trace;
-                        else
-                            regMat(shift+1:end, lag) = trace(1:end-shift);
-                        end
-                    end
-                    
-                    % Remove columns with no data
-                    validCols = any(regMat, 1);
-                    matOut{iRegs} = regMat(:, validCols);
-                    idxOut{iRegs} = repmat(iRegs, sum(validCols), 1);
-                end
-                
-                % Concatenate matrices and indices for all labels
-                matOut = cat(2, matOut{:});
-                idxOut = cat(1, idxOut{:});
-            end
-        
-            % Extract relevant columns
-            selectedRows = fullR.stim == 1;  % Logical index for selected rows
-            framesPerTrial = obj.sRate * (obj.postTime - (-obj.preTime)); % from -0.5s to 2s; assuming 20 Hz sampling
-            nTrials = obj.bhvTrialCnt;
-            
-            % Create the time-shifted design matrix for stimulus labels
-            [stimMat, stimIdx] = buildTimeShiftedMatrix(stimLabels);
-        end
-
-        function [moveMat, moveIdx] = createMovementDesignMatrix(obj, fullR, moveLabels)
-            % *createMovementDesignMatrix*: an embedded function that constructs 
-            % a *time-shifted* design matrix for movement parameters
+        function [taskMat, taskIdx] = createTaskDesignMatrix(obj, fullR, taskLabels)
+            % *createTaskDesignMatrix*: an embedded function that constructs 
+            % a *time-shifted* design matrix for task parameters
             
             % INPUT:
             % - *obj*: (can be kept empty) the *object instance* of the class linearEncodeModel
@@ -417,11 +346,11 @@ classdef linearEncodeModel
             % to call the function as it belongs to the method of the class
             % linearEncodeModel()
             % - *fullR*: table of non-time shifted behavioral & movement regressors
-            % - *moveLabels*: cell array of movement parameter names (e.g. {'wheelVel', 'lickRate'})
+            % - *taskLabels*: cell array of movement parameter names (e.g. {'wheelVel', 'lickRate'})
             
             % OUTPUT:
-            % - *moveMat*: [frames x total_lags] time-shifted design matrix for movement regressors
-            % - *moveIdx*: [total_lags x 1] movement regressor index tracker
+            % - *taskMat*: [frames x total_lags] time-shifted design matrix for task regressors
+            % - *taskIdx*: [total_lags x 1] movement regressor index tracker
             
             % Setup
             kernel = obj.postTime - (-obj.preTime);  % Total time window in seconds
@@ -476,7 +405,7 @@ classdef linearEncodeModel
             end
         
             % Generate Design Matrix for Movement Labels
-            [moveMat, moveIdx] = buildTimeShiftedMatrix(moveLabels);
+            [taskMat, taskIdx] = buildTimeShiftedMatrix(taskLabels);
         end
 
        function [vidMat, vidIdx] = createVideoDesignMatrix(obj, fullR, vidLabels)
@@ -508,93 +437,7 @@ classdef linearEncodeModel
             end
        end
 
-                    
-       function [fullR_out, regIdx, regLabels] = timeLagOrtho(obj, fullR, stimLabels, moveLabels, vidLabels)
-           % *timeLagOrtho*: Constructs a time-lagged design matrix, checks for linear dependence,
-           % and orthogonalises operant and spontaneous regressors if needed (when the matrix
-           % fails the qr decomposition test).
-
-           % INPUT:
-           % - *obj*: instance of linearEncodeModel (can be ignored for method call)
-           % - *fullR*: table of all regressors
-           % - *stimLabels*, moveLabels, vidLabels: selected labels for
-           % regressor groups for stimulus (task), movement (task) and
-           % video PC regressors
-
-           % OUTPUT:
-           % - *fullR_out*: GLM-ready matrix with optional orthogonalisation
-           % - *regIdx*: group index vector
-           % - *regLabels*: labels for regressors in fullR_out in *cells* of *strings* format 
-           
-           % Pre-checks and design matrix expansion
-           [stimMat, stimIdx, moveMat, moveIdx, vidMat, vidIdx, regLabels] = ...
-               prepareExpandedDesign(obj, fullR, stimLabels, moveLabels, vidLabels);
-
-           fullR_out = [stimMat, moveMat, vidMat];
-
-           % Orthogonalise if necessary
-           [fullR_out, regLabels] = checkAndOrthogonalise(fullR_out, stimLabels, moveLabels, vidLabels, regLabels);
-
-           % Build group index
-           regIdx = [
-               stimIdx;
-               moveIdx + length(stimIdx);
-               vidIdx  + length(stimIdx) + length(moveIdx)
-               ];
-       end
-
-       function [stimMat, stimIdx, moveMat, moveIdx, vidMat, vidIdx, regLabels] = ...
-                  prepareExpandedDesign(obj, fullR, stimLabels, moveLabels, vidLabels)
-           % *prepareExpandedDesign*: a helper function that helps to prepare design
-           % matrix by 1) rank deficiency, and 2) running correlation
-           % checks, before expansion.
-
-           % INPUT:
-           % - *obj*: *instance* of linearEncodeModel class (can be ignored for method call)
-           % - *fullR*: *table* of all regressors
-           % - *stimLabels*, moveLabels, vidLabels: selected labels for regressor groups for
-           % stimulus (task), movement (task) and video PC regressors
-
-
-           % OUTPUT:
-           % - *stimMat*: a time-shifted stimulus design matrix with size [frames x (number of stimulus regressors x lags)]
-           % - *stimIdx*: index tracker for the stimulus regressors, corresponding to time-shifted columns in stimMat
-           % - *moveMat*: [frames x total_lags] time-shifted design matrix for movement regressors
-           % - *moveIdx*: [total_lags x 1] movement regressor index tracker
-           % - vidMat: matrix [frames x number of video regressors]
-           % - vidIdx: [number of video regressors x 1], each element is the regressor index
-           % - *regLabels*: labels for regressors in fullR_out in *cells* of *strings* format
-
-           % Check rank deficiency before expansion
-           r = rank(table2array(fullR), 1e-10);
-           if r < size(fullR, 2)
-               warning('Design matrix before expansion is rank deficient by %d column(s).', size(fullR,2) - r);
-           end
-
-           % Correlation check
-           R_raw = table2array(fullR);
-           corrMat = corrcoef(R_raw, 'Rows', 'pairwise');
-           [row, col] = find(abs(corrMat) > 0.95 & triu(true(size(corrMat)), 1));
-           if ~isempty(row)
-               fprintf('Highly correlated pre-expansion regressors:\n');
-               for i = 1:length(row)
-                   fprintf('  %s <-> %s: r = %.2f\n', ...
-                       fullR.Properties.VariableNames{row(i)}, ...
-                       fullR.Properties.VariableNames{col(i)}, ...
-                       corrMat(row(i), col(i)));
-               end
-           end
-
-           % Expand design matrices
-           [stimMat, stimIdx] = createStimulusDesignMatrix(obj, fullR, stimLabels);
-           [moveMat, moveIdx] = createMovementDesignMatrix(obj, fullR, moveLabels);
-           [vidMat, vidIdx]   = createVideoDesignMatrix(obj, fullR, vidLabels);
-
-           % Track labels
-           regLabels = [stimLabels, moveLabels, vidLabels];
-       end
-
-       function [fullR_ortho, regLabels] = checkAndOrthogonalise(fullR_out, stimLabels, moveLabels, vidLabels, regLabels)
+       function [fullR_ortho, regLabels] = checkAndOrthogonalise(obj, fullR_out, stimLabels, moveLabels, vidLabels, regLabels)
            % *checkAndOrthogonalise*: Check for rank deficiency and high correlation
            % between regressor groups (stim, move, video) after expansion.
            % Orthogonalise movement w.r.t stimulus, and video w.r.t stim + move
@@ -657,17 +500,18 @@ classdef linearEncodeModel
                    disp(allLabels(depCols)');
                end
 
-               % Orthogonalise movement w.r.t stimulus
-               [Qstim, ~] = qr(stimBlock, 0);
-               moveOrth = moveBlock - Qstim * (Qstim' * moveBlock);
+               % Separate regressor blocks
+               stimBlock = fullR_out(:, sInd);  % Stimulus regressors
+               moveBlock = fullR_out(:, mInd);  % Movement regressors
+               vidBlock  = fullR_out(:, vInd);  % Video PC regressors
 
-               % Orthogonalise video w.r.t stimulus + movement
-               [QstimMove, ~] = qr([stimBlock, moveOrth], 0);
-               vidOrth = vidBlock - QstimMove * (QstimMove' * vidBlock);
+               % Step: Orthogonalise video w.r.t. stimulus + movement
+               fprintf('Orthogonalising videoPCs w.r.t. stimulus + movement regressors...\n');
+               [QstimMove, ~] = qr([stimBlock, moveBlock], 0);  % QR of combined stim + move
+               vidOrth = vidBlock - QstimMove * (QstimMove' * vidBlock);  % Projection removal
 
                % Update matrix
                fullR_ortho = fullR_out;
-               fullR_ortho(:, mInd) = moveOrth;
                fullR_ortho(:, vInd) = vidOrth;
 
                % Final QR for consistency on video block
