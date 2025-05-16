@@ -81,7 +81,7 @@ R = model.getDesignMatrix();
  % - regIdx: group index vector
  % - regLabels: labels for regressors in fullR_out
         
-% Preparations - Divide the model into different parts
+% Define Regressor Labels
 stimLabels = {'rewardR0','rewardR00625', 'rewardR0125', 'rewardR025', 'rewardR05', 'rewardR1', ... 
     'rewardL0','rewardL00625', 'rewardL0125', 'rewardL025', 'rewardL05', 'rewardL1', ...
     'stimContrastR0','stimContrastR00625', 'stimContrastR0125', 'stimContrastR025', 'stimContrastR05', ...
@@ -94,8 +94,24 @@ vidLabels = {'motionPC1', 'motionPC2', 'motionPC3', 'motionPC4', ...
              'motionPC5', 'motionPC6', 'motionPC7', 'motionPC8', ...
              'motionPC9', 'motionPC10'};
 
-% Main function - Split regressors according to regressor type, and expand matrix
-[expandR, regIdx, regLabels] = model.timeLagOrtho(R, stimLabels, moveLabels, vidLabels);
+% Expand regressors (create time-lagged matrices) - I understa
+[stimMat, stimIdx] = model.createTaskDesignMatrix(R, stimLabels);
+[moveMat, moveIdx] = model.createTaskDesignMatrix(R, moveLabels);
+[vidMat,  vidIdx]  = model.createVideoDesignMatrix(R, vidLabels);  % not expanded if not needed
+
+% Concatenate full matrix and regressor labels
+expandR_raw = [stimMat, moveMat, vidMat];
+regLabels = [stimLabels, moveLabels, vidLabels];
+
+% Run rank & correlation check + orthogonalisation (after expansion)
+[expandR, regLabels] = model.checkAndOrthogonalise(expandR_raw, stimLabels, moveLabels, vidLabels, regLabels);
+
+% Construct regressor group index (used later in model fitting)
+regIdx = [
+    stimIdx;
+    moveIdx + length(stimIdx);
+    vidIdx  + length(stimIdx) + length(moveIdx)
+];
 
 %% Trim the outcome variables so that they are epoched (concatenated time kernel data) %%
 % -- fluorTaskKernel -- 
@@ -147,7 +163,7 @@ model.fluorACHRightTaskKernel = model.extractTrialFluor(model.fluorACHRight);
 % Run ridge regression for the behavioural and video PC regressors against
 % the fluorDALeft and fluorACHRight outcomes
 [ridgeDALambda, ridgeDABeta] = model.ridgeMML(expandR, model.fluorDALeftTaskKernel', true, [], true, 30); %get ridge penalties and beta weights.
-[ridgeACHVLambda, ridgeACHBeta] = model.ridgeMML(expandR, model.fluorACHRightTaskKernel, true, [], true, 30); %get ridge penalties and beta weights.
+[ridgeACHLambda, ridgeACHBeta] = model.ridgeMML(expandR, model.fluorACHRightTaskKernel', true, [], true, 30); %get ridge penalties and beta weights.
 
 %% Visualise the expand matrix %%
 
@@ -171,7 +187,7 @@ model.fluorACHRightTaskKernel = model.extractTrialFluor(model.fluorACHRight);
 % Plot regressors (for the first 2 minutes for visualisation)
 model.plotDesignMatrix(expandR);
 
-%% Plot the beta values out for all averaged time kernels
+%% (Testing) Plot the beta values out for all averaged time kernels
 % -- plotEpochAverageBetas -- 
 % A function that takes in betas, epochs every 50 frames and average them, and 
 % plot the betas for the matrix as a curve over time
@@ -190,6 +206,5 @@ regressorGroups = {
 };
 
 plotRegressorGroupsOverTime(model, ridgeDABeta, regLabels, regressorGroups);
-
 
 
